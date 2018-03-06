@@ -55,6 +55,7 @@ class BilliardsMatch extends Common
         ];
     }
     public function closeClient($matchId,$data){
+        \frontend\models\Gateway::$registerAddress = '192.168.1.9:1238';
         $Matchwhere=array(
             'id'=>$matchId
         );
@@ -67,6 +68,9 @@ class BilliardsMatch extends Common
         $Modecolumns='type_id';
         $type=$BilliardsType->getRecord($Modewhere,$Modecolumns);
         $matchList=$data['match_list'];
+        if($matchList[0]['user_id']==$matchList[1]['user_id']){
+            return false;
+        }
         if($type['type_id']==1){
             foreach ($matchList as $client_id){
             if(empty($client_id['client_id'])){
@@ -78,6 +82,10 @@ class BilliardsMatch extends Common
             if(!\frontend\models\Gateway::isOnline($client_id['client_id'])){
                 return false;
             }
+                $MatchAnalysis=new BilliardsMatchAnalysis();
+                if(empty($MatchAnalysis->getRecord(array('match_id'=>$matchId,'user_id'=>$client_id['user_id'])))){
+                    return false;
+                }
             }
             foreach($matchList as $key){
                 //解除绑定

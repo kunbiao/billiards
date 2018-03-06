@@ -51,7 +51,6 @@ class MatchController extends CommonController
     {
         $this->_func = __FUNCTION__;
         $this->chkDebug();
-
         $matchID = $this->_postData['match_id'];
         $BilliardsMatch=new BilliardsMatch();
         if (empty($matchID)) {
@@ -61,7 +60,7 @@ class MatchController extends CommonController
         }
         if(!$BilliardsMatch->closeClient($matchID,$this->_postData)){
             $this->_errCode = 1112;
-            $this->_errMsg = '请输入正确的客户端Id';
+            $this->_errMsg = '请输入正确的客户端Id或者用户id';
             $this->outputMsg();
         }
         if ($BilliardsMatch->isMatchStatsSaved($matchID,$this->_postData)) {
@@ -178,7 +177,8 @@ class MatchController extends CommonController
         \frontend\models\Gateway::$registerAddress = '192.168.1.9:1238';
         $this->_func = __FUNCTION__;
         $this->chkDebug();
-        $this->confine($this->_postData);
+        $use_time=$this->confine($this->_postData);
+        $this->_postData=array_merge($this->_postData,$use_time);
         $user=new User();
         if(empty($this->_postData['user_id'])){
             $this->_errCode = 21;
@@ -204,7 +204,7 @@ class MatchController extends CommonController
         }
         if(!empty(\frontend\models\Gateway::getClientIdByUid($this->_postData['user_id']))){
             $this->_errCode = 99;
-            $this->_errMsg = '该user_id已经在匹配中，请勿重复匹配';
+            $this->_errMsg = '该user_id匹配中或者比赛中，请勿重复匹配';
             $this->outputMsg();
         }
         \frontend\models\Gateway::bindUid($client_id, $this->_postData['user_id']);
@@ -225,10 +225,11 @@ class MatchController extends CommonController
             $type=array('type'=>'login');
             $matchID=array('match_id'=>$matchID);
             $client_id=array('client_id'=>$userInfo[0]['client_id']);
-            $userInfoA=array_merge($userInfoA['user_list'],$client_id,$type,$matchID);
+            $use_time=array('use_time'=>$userInfo[0]['use_time']);
+            $userInfoA=array_merge($userInfoA['user_list'],$client_id,$type,$matchID,$use_time);
             $userInfoB["user_list"]=$user->getUserInfo($userInfo[1]['user_id']);
             $client_id=array('client_id'=>$userInfo[1]['client_id']);
-            $userInfoB=array_merge($userInfoB['user_list'],$client_id,$type,$matchID);
+            $userInfoB=array_merge($userInfoB['user_list'],$client_id,$type,$matchID,$use_time);
             \frontend\models\Gateway::sendToUid($userInfoB['user_id'], json_encode($userInfoA));
             \frontend\models\Gateway::sendToUid($userInfoA['user_id'], json_encode($userInfoB));
         }
@@ -261,7 +262,10 @@ class MatchController extends CommonController
     public function actionCancel(){
         $this->_func = __FUNCTION__;
         $this->chkDebug();
-        $this->confine($this->_postData);
+
+        $use_time=$this->confine($this->_postData);
+        $this->_postData=array_merge($this->_postData,$use_time);
+
         $user=new User();
         if(strlen($this->_postData['client_id'])!=20){
             $this->_errCode = 88;
@@ -283,14 +287,13 @@ class MatchController extends CommonController
             $this->_errMsg = '该client_id已经下线或不存在';
             $this->outputMsg();
         }
-        //解除绑定
-            \frontend\models\Gateway::unbindUid($this->_postData['client_id'],$this->_postData['user_id']);
         $access_token = $this->_postData['access_token'];
         $this->verify($access_token);
         $match_mode=$this->_postData['match_mode'];
         $bet_id=$this->_postData['bet_id'];
         $key=$match_mode.$bet_id;
         $redis = Yii::$app->redis;
+
         $json_value=json_encode($this->_postData);
         $count = $redis->LREM('myslist' . $key,0,$json_value);
         if($count){
