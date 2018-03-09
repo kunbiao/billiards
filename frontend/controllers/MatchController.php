@@ -11,7 +11,9 @@ use frontend\models\BilliardsMatch;
 use frontend\models\BilliardsMatchAnalysis;
 use frontend\models\BilliardsTypeMode;
 use frontend\models\Court;
+use frontend\models\RoomTime;
 use frontend\models\User;
+use phpDocumentor\Reflection\DocBlock\Tags\Var_;
 use Yii;
 class MatchController extends CommonController
 {
@@ -177,6 +179,7 @@ class MatchController extends CommonController
         \frontend\models\Gateway::$registerAddress = '192.168.1.9:1238';
         $this->_func = __FUNCTION__;
         $this->chkDebug();
+        $redis = Yii::$app->redis;
         $use_time=$this->confine($this->_postData);
         $this->_postData=array_merge($this->_postData,$use_time);
         $user=new User();
@@ -202,9 +205,9 @@ class MatchController extends CommonController
             $this->_errMsg = '该client_id已经下线或不存在';
             $this->outputMsg();
         }
-        if(!empty(\frontend\models\Gateway::getClientIdByUid($this->_postData['user_id']))){
+        if(!empty($redis->EXISTS($this->_postData['user_id']))){
             $this->_errCode = 99;
-            $this->_errMsg = '该user_id匹配中或者比赛中，请勿重复匹配';
+            $this->_errMsg = '该user_id匹配中，请勿重复匹配';
             $this->outputMsg();
         }
         \frontend\models\Gateway::bindUid($client_id, $this->_postData['user_id']);
@@ -244,6 +247,7 @@ class MatchController extends CommonController
         // 判断 key 为 username 的是否有值，有则打印，没有则赋值
         $json_value=json_encode($data);
         $redis->lpush('myslist'.$key,$json_value);
+        $redis->lpush($data['user_id'],'myslist'.$key);
         //获取集合里的用户数
         $UserCount=$redis->llen('myslist'.$key);
         if($UserCount>=2) {
@@ -252,6 +256,9 @@ class MatchController extends CommonController
             $lastInfoJson = $redis->Rpop('myslist' . $key);
             $fastInfo = json_decode($fastInfoJson, true);
             $lastInfo = json_decode($lastInfoJson, true);
+            $redis = Yii::$app->redis;
+            $redis->del($fastInfo['user_id']);
+            $redis->del($lastInfo['user_id']);
             $info = array($fastInfo, $lastInfo);
             return $info;
         }else{
@@ -260,51 +267,35 @@ class MatchController extends CommonController
     }
     //用户取消匹配
     public function actionCancel(){
-        $this->_func = __FUNCTION__;
         $this->chkDebug();
-
-        $use_time=$this->confine($this->_postData);
-        $this->_postData=array_merge($this->_postData,$use_time);
-
         $user=new User();
-        if(strlen($this->_postData['client_id'])!=20){
-            $this->_errCode = 88;
-            $this->_errMsg = '请输入正确的client_id';
-            $this->outputMsg();
-        }
-        if(empty($this->_postData['user_id'])){
+        $user_id=$this->_postData['user_id'];
+        if(empty($user_id)){
             $this->_errCode = 21;
             $this->_errMsg = '请传user_id参数';
             $this->outputMsg();
         }
-        if(!$user->getRecord(array('id'=>$this->_postData['user_id']))){
+        if(!$user->getRecord(array('id'=>$user_id))){
             $this->_errCode = 22;
             $this->_errMsg = '请输出正确user_id';
             $this->outputMsg();
         }
-        if(!\frontend\models\Gateway::isOnline($this->_postData['client_id'])){
-            $this->_errCode = 89;
-            $this->_errMsg = '该client_id已经下线或不存在';
-            $this->outputMsg();
-        }
-        $access_token = $this->_postData['access_token'];
-        $this->verify($access_token);
-        $match_mode=$this->_postData['match_mode'];
-        $bet_id=$this->_postData['bet_id'];
-        $key=$match_mode.$bet_id;
         $redis = Yii::$app->redis;
-
-        $json_value=json_encode($this->_postData);
-        $count = $redis->LREM('myslist' . $key,0,$json_value);
-        if($count){
-            //解除绑定
-            \frontend\models\Gateway::unbindUid($this->_postData['client_id'],$this->_postData['user_id']);
-            $this->outputMsg();
+        $mate=$redis->LINDEX($user_id,0);
+        $mateKeyLength=$redis->LLEN($mate);
+        \frontend\models\Gateway::$registerAddress = '192.168.1.9:1238';
+        if(!empty($redis->keys($user_id)) || $mateKeyLength==1){
+                //获取当前用户连接的客户端id
+                $client_id=\frontend\models\Gateway::getClientIdByUid($user_id);
+                //解除绑定
+                \frontend\models\Gateway::unbindUid($client_id[0],$user_id);
+                $redis->Lpop($mate);
+                $redis->del($user_id);
         }else{
             $this->_errCode = 1;
-            $this->_errMsg = '请重试或者已经取消匹配';
-            $this->outputMsg();
+            $this->_errMsg = '正在比赛中或者已经取消匹配';
         }
+        $this->outputMsg();
     }
     public function confine($result){
         if(empty($result['match_mode'])){
@@ -313,7 +304,7 @@ class MatchController extends CommonController
             $this->outputMsg();
         }
         $TypeMode=new BilliardsTypeMode();
-        if(!$TypeMode->getRecord(array('id'=>$result['match_mode']))){
+        if(!$mode_id=$TypeMode->getRecord(array('id'=>$result['match_mode']),'type_id')){
             $this->_errCode = 19;
             $this->_errMsg = '请输出正确match_mode';
             $this->outputMsg();
@@ -323,8 +314,8 @@ class MatchController extends CommonController
             $this->_errMsg = '请传bet_id参数';
             $this->outputMsg();
         }
-        $TypeMode=new Bet();
-        if(!$use_time=$TypeMode->getRecord(array('id'=>$result['bet_id']),'use_time')){
+        $TypeMode=new RoomTime();
+        if(!$use_time=$TypeMode->getRecord(array('bet_id'=>$result['bet_id'],'mode_id'=>$mode_id),'use_time')){
             $this->_errCode = 21;
             $this->_errMsg = '请输出正确bet_id';
             $this->outputMsg();

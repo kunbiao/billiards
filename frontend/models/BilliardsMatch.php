@@ -68,10 +68,10 @@ class BilliardsMatch extends Common
         $Modecolumns='type_id';
         $type=$BilliardsType->getRecord($Modewhere,$Modecolumns);
         $matchList=$data['match_list'];
-        if($matchList[0]['user_id']==$matchList[1]['user_id']){
-            return false;
-        }
         if($type['type_id']==1){
+            if($matchList[0]['user_id']==$matchList[1]['user_id'] || $matchList[0]['client_id']==$matchList[1]['client_id']){
+                return false;
+            }
             foreach ($matchList as $client_id){
             if(empty($client_id['client_id'])){
                 return false;
@@ -117,4 +117,9 @@ class BilliardsMatch extends Common
         );
         return $this->updateRecord($data,$where);
     }
+//    public function getRedisKey($user_id){
+//        $where=array(
+//            ''
+//        );
+//    }
 }
