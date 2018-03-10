@@ -96,7 +96,7 @@ class MatchController extends CommonController
         if(count($result['match_list'])!=2){
             return false;
         }
-        $use_time=$this->confine($result);
+        $this->confine($result,2);
         $user=new User();
         foreach ($result['match_list'] as $userid){
             if(empty($userid['user_id'])){
@@ -125,7 +125,7 @@ class MatchController extends CommonController
         $BilliardsMatch=new BilliardsMatch();
         $matchID = $BilliardsMatch->addRecord($matchRecord);
         $this->addUserMatchRecord($matchID,$access_token,$matchMode,$result['match_list']);
-        return array('match_id'=>$matchID,'use_time'=>$use_time['use_time']);
+        return array('match_id'=>$matchID);
     }
     private function addPlayerMatchRecord($result)
     {
@@ -180,7 +180,7 @@ class MatchController extends CommonController
         $this->_func = __FUNCTION__;
         $this->chkDebug();
         $redis = Yii::$app->redis;
-        $use_time=$this->confine($this->_postData);
+        $use_time=$this->confine($this->_postData,1);
         $this->_postData=array_merge($this->_postData,$use_time);
         $user=new User();
         if(empty($this->_postData['user_id'])){
@@ -236,7 +236,7 @@ class MatchController extends CommonController
             \frontend\models\Gateway::sendToUid($userInfoB['user_id'], json_encode($userInfoA));
             \frontend\models\Gateway::sendToUid($userInfoA['user_id'], json_encode($userInfoB));
         }
-            $this->outputMsg();
+        $this->outputMsg();
     }
     //匹配玩家
     public function Matching($data){
@@ -247,6 +247,7 @@ class MatchController extends CommonController
         // 判断 key 为 username 的是否有值，有则打印，没有则赋值
         $json_value=json_encode($data);
         $redis->lpush('myslist'.$key,$json_value);
+//        $redis->lpush($data['client_id'],$data['user_id']);
         $redis->lpush($data['user_id'],'myslist'.$key);
         //获取集合里的用户数
         $UserCount=$redis->llen('myslist'.$key);
@@ -285,46 +286,45 @@ class MatchController extends CommonController
         $mateKeyLength=$redis->LLEN($mate);
         \frontend\models\Gateway::$registerAddress = '192.168.1.9:1238';
         if(!empty($redis->keys($user_id)) || $mateKeyLength==1){
-                //获取当前用户连接的客户端id
-                $client_id=\frontend\models\Gateway::getClientIdByUid($user_id);
-                //解除绑定
-                \frontend\models\Gateway::unbindUid($client_id[0],$user_id);
-                $redis->Lpop($mate);
-                $redis->del($user_id);
+            //获取当前用户连接的客户端id
+            $client_id=\frontend\models\Gateway::getClientIdByUid($user_id);
+            //解除绑定
+            \frontend\models\Gateway::unbindUid($client_id[0],$user_id);
+            $redis->Lpop($mate);
+            $redis->del($user_id);
         }else{
             $this->_errCode = 1;
             $this->_errMsg = '正在比赛中或者已经取消匹配';
         }
         $this->outputMsg();
     }
-    public function confine($result){
+    public function confine($result,$type_id){
         if(empty($result['match_mode'])){
             $this->_errCode = 18;
             $this->_errMsg = '请传match_mode参数';
             $this->outputMsg();
         }
         $TypeMode=new BilliardsTypeMode();
-        if(!$mode_id=$TypeMode->getRecord(array('id'=>$result['match_mode']),'type_id')){
+        if(!$mode_id=$TypeMode->getRecord(array('mode_id'=>$result['match_mode'],'type_id'=>$type_id),'mode_id')){
             $this->_errCode = 19;
-            $this->_errMsg = '请输出正确match_mode';
+            $this->_errMsg = '请输入当前模式正确match_mode';
             $this->outputMsg();
         }
         if(empty($result['bet_id'])){
             $this->_errCode = 20;
             $this->_errMsg = '请传bet_id参数';
+            $this->outputMsg();
+        }
+        $bet=new Bet();
+        if(!$bet->getRecord(array('id'=>$result['bet_id']))){
+            $this->_errCode = 31;
+            $this->_errMsg = '请输入正确的bet_id';
             $this->outputMsg();
         }
         $TypeMode=new RoomTime();
-        if(!$use_time=$TypeMode->getRecord(array('bet_id'=>$result['bet_id'],'mode_id'=>$mode_id),'use_time')){
-            $this->_errCode = 21;
-            $this->_errMsg = '请输出正确bet_id';
-            $this->outputMsg();
+        if($type_id==1){
+            $use_time=$TypeMode->getRecord(array('bet_id'=>$result['bet_id'],'mode_id'=>$mode_id['mode_id']),'use_time');
+            return $use_time;
         }
-        if(empty($result['bet_id'])){
-            $this->_errCode = 20;
-            $this->_errMsg = '请传bet_id参数';
-            $this->outputMsg();
-        }
-        return $use_time;
     }
 }
